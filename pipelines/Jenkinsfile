@@ -1,0 +1,134 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION = 'af-south-1' // your AWS region
+        ECR_REPO = 'my-app-latest-repo' // ECR repo name
+        EC2_INSTANCE_ID = 'i-098FC1FA4EB453D6E' // your EC2 instance
+        SSH_KEY_PATH = '/var/lib/jenkins/keys/devops3-key.pem' // Jenkins server key
+        TERRAFORM_DIR = './terraform' // path to your Terraform code
+        DOCKER_IMAGE_TAG = "latest-${env.BUILD_NUMBER}"
+        ECS_CLUSTER = 'devops-cluster'
+        ECS_SERVICE = 'devops-service'
+    }
+
+    options {
+        timestamps()
+        timeout(time: 60, unit: 'MINUTES')
+        ansiColor('xterm')
+    }
+
+    stages {
+
+        stage('Terraform Init & Apply') {
+            steps {
+                script {
+                    try {
+                        echo "Initializing Terraform..."
+                        dir("${env.TERRAFORM_DIR}") {
+                            sh 'terraform init'
+                            sh 'terraform apply -auto-approve'
+                        }
+                    } catch (err) {
+                        error "Terraform stage failed: ${err}"
+                    }
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    try {
+                        echo "Building Docker image..."
+                        sh "docker build -t ${ECR_REPO}:${DOCKER_IMAGE_TAG} ."
+                    } catch (err) {
+                        error "Docker build failed: ${err}"
+                    }
+                }
+            }
+        }
+
+        stage('Login to ECR') {
+            steps {
+                script {
+                    try {
+                        echo "Logging into AWS ECR..."
+                        sh '''
+                            aws ecr get-login-password --region $AWS_REGION | \
+                            docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+                        '''
+                    } catch (err) {
+                        error "ECR login failed: ${err}"
+                    }
+                }
+            }
+        }
+
+        stage('Push Docker Image to ECR') {
+            steps {
+                script {
+                    try {
+                        echo "Tagging and pushing image to ECR..."
+                        sh "docker tag ${ECR_REPO}:${DOCKER_IMAGE_TAG} $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG}"
+                        sh "docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG}"
+                    } catch (err) {
+                        error "Docker push failed: ${err}"
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to ECS Fargate') {
+            steps {
+                script {
+                    try {
+                        echo "Updating ECS service..."
+                        sh """
+                        aws ecs update-service \
+                            --cluster ${ECS_CLUSTER} \
+                            --service ${ECS_SERVICE} \
+                            --force-new-deployment \
+                            --region ${AWS_REGION}
+                        """
+                    } catch (err) {
+                        error "Fargate deployment failed: ${err}"
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to EC2') {
+            steps {
+                script {
+                    try {
+                        echo "Deploying Docker container to EC2..."
+                        sh """
+                        ssh -o StrictHostKeyChecking=no -i ${SSH_KEY_PATH} ubuntu@${EC2_INSTANCE_ID} \\
+                        'docker pull $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG} && \\
+                         docker stop my-app || true && \\
+                         docker rm my-app || true && \\
+                         docker run -d --name my-app -p 80:80 $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG}'
+                        """
+                    } catch (err) {
+                        error "EC2 deployment failed: ${err}"
+                    }
+                }
+            }
+        }
+
+    }
+
+    post {
+        success {
+            echo "Pipeline completed successfully!"
+        }
+        failure {
+            echo "Pipeline failed. Check the logs for details."
+        }
+        always {
+            echo "Cleaning up workspace..."
+            cleanWs()
+        }
+    }
+}
