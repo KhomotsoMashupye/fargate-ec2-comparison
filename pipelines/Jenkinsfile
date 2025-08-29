@@ -2,10 +2,11 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION = 'af-south-1' // your AWS region
-        ECR_REPO = 'my-app-latest-repo' // ECR repo name
-        EC2_INSTANCE_ID = 'i-098FC1FA4EB453D6E' // your EC2 instance
-        SSH_KEY_PATH = '/var/lib/jenkins/keys/devops3-key.pem' // Jenkins server key
+        AWS_ACCOUNT_ID = '522237065210'
+        AWS_REGION = 'af-south-1'
+        ECR_REPO = 'my-app-latest-repo'
+        EC2_INSTANCE_ID = 'i-064113b26d1914b06'
+        SSH_KEY_PATH = '/home/ubuntu/keys/devops3-key.pem'
         TERRAFORM_DIR = 'terraform'
         DOCKER_IMAGE_TAG = "latest-${env.BUILD_NUMBER}"
         ECS_CLUSTER = 'devops-cluster'
@@ -15,7 +16,7 @@ pipeline {
     options {
         timestamps()
         timeout(time: 60, unit: 'MINUTES')
-        ansiColor('xterm')
+        // ansiColor('xterm') // removed for now
     }
 
     stages {
@@ -25,7 +26,7 @@ pipeline {
                 script {
                     try {
                         echo "Initializing Terraform..."
-                        dir("terraform") {
+                        dir("${TERRAFORM_DIR}") {
                             sh 'terraform init'
                             sh 'terraform apply -auto-approve'
                         }
@@ -54,10 +55,10 @@ pipeline {
                 script {
                     try {
                         echo "Logging into AWS ECR..."
-                        sh '''
-                            aws ecr get-login-password --region $AWS_REGION | \
-                            docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
-                        '''
+                        sh """
+                        aws ecr get-login-password --region $AWS_REGION | \
+                        docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+                        """
                     } catch (err) {
                         error "ECR login failed: ${err}"
                     }
