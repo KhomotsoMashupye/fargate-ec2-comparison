@@ -25,7 +25,7 @@ pipeline {
                 script {
                     try {
                         echo "Initializing Terraform..."
-                        dir("${env.TERRAFORM_DIR}") {
+                        dir("terraform") {
                             sh 'terraform init'
                             sh 'terraform apply -auto-approve'
                         }
