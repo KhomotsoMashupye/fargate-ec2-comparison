@@ -12,6 +12,14 @@ pipeline {
         ECS_CLUSTER = 'devops-cluster'
         ECS_SERVICE = 'devops-service'
     }
+    stages {
+
+        stage('Checkout Code') {
+            steps {
+                checkout scm
+            }
+        }
+
 
     options {
         timestamps()
