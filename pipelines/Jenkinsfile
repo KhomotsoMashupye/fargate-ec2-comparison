@@ -2,58 +2,29 @@ pipeline {
     agent any
 
     environment {
-        AWS_ACCOUNT_ID = '522237065210'
         AWS_REGION = 'af-south-1'
+        AWS_ACCOUNT_ID = '522237065210'
         ECR_REPO = 'my-app-latest-repo'
-        EC2_INSTANCE_ID = 'i-064113b26d1914b06'
-        SSH_KEY_PATH = '/home/ubuntu/keys/devops3-key.pem'
-        TERRAFORM_DIR = 'terraform'
         DOCKER_IMAGE_TAG = "latest-${env.BUILD_NUMBER}"
         ECS_CLUSTER = 'devops-cluster'
         ECS_SERVICE = 'devops-service'
+        EC2_INSTANCE_ID = 'i-064113b26d1914b06'
+        SSH_KEY_PATH = '/home/ubuntu/keys/devops3-key.pem'
     }
-    stages {
-
-        stage('Checkout Code') {
-            steps {
-                checkout scm
-            }
-        }
-
 
     options {
         timestamps()
-        timeout(time: 60, unit: 'MINUTES')
-        // ansiColor('xterm') // removed for now
+        timeout(time: 45, unit: 'MINUTES') // reduce if your tasks usually finish faster
+        retry(2) // retry if a stage fails
     }
 
     stages {
-
-        stage('Terraform Init & Apply') {
-            steps {
-                script {
-                    try {
-                        echo "Initializing Terraform..."
-                        dir("${TERRAFORM_DIR}") {
-                            sh 'terraform init'
-                            sh 'terraform apply -auto-approve'
-                        }
-                    } catch (err) {
-                        error "Terraform stage failed: ${err}"
-                    }
-                }
-            }
-        }
 
         stage('Build Docker Image') {
             steps {
                 script {
-                    try {
-                        echo "Building Docker image..."
-                        sh "docker build -t ${ECR_REPO}:${DOCKER_IMAGE_TAG} ."
-                    } catch (err) {
-                        error "Docker build failed: ${err}"
-                    }
+                    echo "Building Docker image..."
+                    sh "docker build -t ${ECR_REPO}:${DOCKER_IMAGE_TAG} ."
                 }
             }
         }
@@ -61,15 +32,11 @@ pipeline {
         stage('Login to ECR') {
             steps {
                 script {
-                    try {
-                        echo "Logging into AWS ECR..."
-                        sh """
+                    echo "Logging into AWS ECR..."
+                    sh """
                         aws ecr get-login-password --region $AWS_REGION | \
                         docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
-                        """
-                    } catch (err) {
-                        error "ECR login failed: ${err}"
-                    }
+                    """
                 }
             }
         }
@@ -77,13 +44,11 @@ pipeline {
         stage('Push Docker Image to ECR') {
             steps {
                 script {
-                    try {
-                        echo "Tagging and pushing image to ECR..."
-                        sh "docker tag ${ECR_REPO}:${DOCKER_IMAGE_TAG} $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG}"
-                        sh "docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG}"
-                    } catch (err) {
-                        error "Docker push failed: ${err}"
-                    }
+                    echo "Tagging Docker image..."
+                    sh "docker tag ${ECR_REPO}:${DOCKER_IMAGE_TAG} $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG}"
+                    
+                    echo "Pushing Docker image..."
+                    sh "docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG}"
                 }
             }
         }
@@ -91,18 +56,14 @@ pipeline {
         stage('Deploy to ECS Fargate') {
             steps {
                 script {
-                    try {
-                        echo "Updating ECS service..."
-                        sh """
+                    echo "Updating ECS service..."
+                    sh """
                         aws ecs update-service \
                             --cluster ${ECS_CLUSTER} \
                             --service ${ECS_SERVICE} \
                             --force-new-deployment \
                             --region ${AWS_REGION}
-                        """
-                    } catch (err) {
-                        error "Fargate deployment failed: ${err}"
-                    }
+                    """
                 }
             }
         }
@@ -110,18 +71,16 @@ pipeline {
         stage('Deploy to EC2') {
             steps {
                 script {
-                    try {
-                        echo "Deploying Docker container to EC2..."
-                        sh """
+                    echo "Deploying Docker container to EC2..."
+                    sh """
                         ssh -o StrictHostKeyChecking=no -i ${SSH_KEY_PATH} ubuntu@${EC2_INSTANCE_ID} \\
-                        'docker pull $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG} && \\
-                         docker stop my-app || true && \\
-                         docker rm my-app || true && \\
-                         docker run -d --name my-app -p 80:80 $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG}'
-                        """
-                    } catch (err) {
-                        error "EC2 deployment failed: ${err}"
-                    }
+                        'echo Starting deployment... && \\
+                         docker pull $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG} && \\
+                         docker stop my-app || echo "Container not running" && \\
+                         docker rm my-app || echo "No container to remove" && \\
+                         docker run -d --name my-app -p 80:80 $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG} && \\
+                         echo Deployment complete.'
+                    """
                 }
             }
         }
