@@ -6,7 +6,7 @@ pipeline {
         ECR_REPO = 'my-app-latest-repo' // ECR repo name
         EC2_INSTANCE_ID = 'i-098FC1FA4EB453D6E' // your EC2 instance
         SSH_KEY_PATH = '/var/lib/jenkins/keys/devops3-key.pem' // Jenkins server key
-        TERRAFORM_DIR = './terraform' // path to your Terraform code
+        TERRAFORM_DIR = 'terraform'
         DOCKER_IMAGE_TAG = "latest-${env.BUILD_NUMBER}"
         ECS_CLUSTER = 'devops-cluster'
         ECS_SERVICE = 'devops-service'
