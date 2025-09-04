@@ -8,7 +8,7 @@ pipeline {
         DOCKER_IMAGE_TAG = "latest-${env.BUILD_NUMBER}"
         ECS_CLUSTER = 'devops-cluster'
         ECS_SERVICE = 'devops-service'
-        EC2_INSTANCE_HOST = '13.247.62.21'  // Updated to your app EC2 public IP
+        EC2_INSTANCE_HOST = '13.247.62.21'  // Your app EC2 public IP
         SSH_KEY_PATH = '/home/ubuntu/keys/devops3-key.pem'
     }
 
@@ -23,8 +23,8 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    echo "Building Docker image..."
-                    sh "docker build -t ${ECR_REPO}:${DOCKER_IMAGE_TAG} ./app"
+                    echo "Building Docker image from root..."
+                    sh "docker build -t ${ECR_REPO}:${DOCKER_IMAGE_TAG} ."
                 }
             }
         }
@@ -34,8 +34,8 @@ pipeline {
                 script {
                     echo "Logging into AWS ECR..."
                     sh """
-                        aws ecr get-login-password --region $AWS_REGION | \
-                        docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+                        aws ecr get-login-password --region ${AWS_REGION} | \
+                        docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
                     """
                 }
             }
@@ -45,10 +45,10 @@ pipeline {
             steps {
                 script {
                     echo "Tagging Docker image..."
-                    sh "docker tag ${ECR_REPO}:${DOCKER_IMAGE_TAG} $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG}"
-                    
-                    echo "Pushing Docker image..."
-                    sh "docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG}"
+                    sh "docker tag ${ECR_REPO}:${DOCKER_IMAGE_TAG} ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG}"
+
+                    echo "Pushing Docker image to ECR..."
+                    sh "docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG}"
                 }
             }
         }
@@ -75,17 +75,16 @@ pipeline {
                     sh """
                         ssh -o StrictHostKeyChecking=no -i ${SSH_KEY_PATH} ubuntu@${EC2_INSTANCE_HOST} '
                             echo Starting deployment... &&
-                            docker pull $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG} &&
+                            docker pull ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG} &&
                             docker stop my-app || echo "Container not running" &&
                             docker rm my-app || echo "No container to remove" &&
-                            docker run -d --name my-app -p 80:80 $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG} &&
+                            docker run -d --name my-app -p 80:80 ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG} &&
                             echo Deployment complete.'
                     """
                 }
             }
         }
-
-    } // end stages
+    }
 
     post {
         success {
@@ -99,5 +98,4 @@ pipeline {
             cleanWs()
         }
     }
-
-} // end pipeline
+}
