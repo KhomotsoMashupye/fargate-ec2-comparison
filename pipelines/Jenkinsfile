@@ -69,10 +69,18 @@ pipeline {
         }
 
         stage('Deploy to EC2') {
-            steps {
-                script {
-                    echo "Deploying Docker container to EC2..."
-                    sh """
-                        ssh -o StrictHostKeyChecking=no -i ${SSH_KEY_PATH} ubuntu@${EC2_INSTANCE_HOST} \\
-                        'echo Starting deployment... && \\
-                         docker pull $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG} && \
+    steps {
+        script {
+            echo "Deploying Docker container to EC2..."
+            sh """
+                ssh -o StrictHostKeyChecking=no -i ${SSH_KEY_PATH} ubuntu@${EC2_INSTANCE_HOST} '
+                    echo Starting deployment... &&
+                    docker pull $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG} &&
+                    docker stop my-app || echo "Container not running" &&
+                    docker rm my-app || echo "No container to remove" &&
+                    docker run -d --name my-app -p 80:80 $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/${ECR_REPO}:${DOCKER_IMAGE_TAG} &&
+                    echo Deployment complete.'
+            """
+        }
+    }
+}
