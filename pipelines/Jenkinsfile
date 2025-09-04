@@ -24,7 +24,7 @@ pipeline {
             steps {
                 script {
                     echo "Building Docker image..."
-                    sh "docker build -t ${ECR_REPO}:${DOCKER_IMAGE_TAG} ."
+                    sh "DOCKER_BUILDKIT=1 docker build -t ${ECR_REPO}:${DOCKER_IMAGE_TAG} ./app"
                 }
             }
         }
